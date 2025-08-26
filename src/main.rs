@@ -3,8 +3,9 @@ use macroquad::prelude::*;
 const GRAVITY: f32 = 800.0;
 const JUMP_FORCE: f32 = -400.0;
 const GROUND_Y: f32 = 400.0;
+const GROUND_Y2: f32 = 450.0; // 第二条地面线，距离第一条50像素
 const DINO_WIDTH: f32 = 25.0;
-const DINO_HEIGHT: f32 = 50.0;
+const DINO_HEIGHT: f32 = 35.0;
 const DINO_X: f32 = 120.0;
 const CACTUS_WIDTH: f32 = 20.0;
 const CACTUS_HEIGHT: f32 = 60.0;
@@ -21,6 +22,14 @@ struct Cactus {
 struct Star {
     x: f32,
     y: f32,
+}
+
+#[derive(Clone)]
+struct Stone {
+    x: f32,
+    y: f32,
+    size: f32,
+    color: Color,
 }
 
 #[derive(Clone)]
@@ -74,10 +83,12 @@ struct GameState {
     is_jumping: bool,
     cacti: Vec<Cactus>,
     stars: Vec<Star>,
+    stones: Vec<Stone>,
     score: u32,
     game_over: bool,
     spawn_timer: f32,
     star_spawn_timer: f32,
+    stone_spawn_timer: f32,
     font: Option<Font>,
     // 复活系统
     showing_math_question: bool,
@@ -93,10 +104,12 @@ impl GameState {
             is_jumping: false,
             cacti: Vec::new(),
             stars: Vec::new(),
+            stones: Vec::new(),
             score: 0,
             game_over: false,
             spawn_timer: 0.0,
             star_spawn_timer: 0.0,
+            stone_spawn_timer: 0.0,
             font: None,
             showing_math_question: false,
             math_question: None,
@@ -110,10 +123,12 @@ impl GameState {
         self.is_jumping = false;
         self.cacti.clear();
         self.stars.clear();
+        self.stones.clear();
         self.score = 0;
         self.game_over = false;
         self.spawn_timer = 0.0;
         self.star_spawn_timer = 0.0;
+        self.stone_spawn_timer = 0.0;
         self.showing_math_question = false;
         self.math_question = None;
         self.input_buffer.clear();
@@ -239,23 +254,27 @@ impl GameState {
 
             // 40% 概率生成仙人掌
             if rng.gen_bool(0.4) {
+                // 仙人掌底部位置在两条地面线中间
+                let middle_y = GROUND_Y + (GROUND_Y2 - GROUND_Y) / 2.0;
+                let cactus_y = middle_y - CACTUS_HEIGHT;
+                
                 // 30% 概率生成两个连在一起的仙人掌
                 if rng.gen_bool(0.3) {
                     // 生成第一个仙人掌
                     self.cacti.push(Cactus {
                         x: screen_width(),
-                        y: GROUND_Y - CACTUS_HEIGHT,
+                        y: cactus_y,
                     });
                     // 生成第二个仙人掌，紧挨着第一个
                     self.cacti.push(Cactus {
                         x: screen_width() + CACTUS_WIDTH + 5.0, // 留5像素间隙
-                        y: GROUND_Y - CACTUS_HEIGHT,
+                        y: cactus_y,
                     });
                 } else {
                     // 生成单个仙人掌
                     self.cacti.push(Cactus {
                         x: screen_width(),
-                        y: GROUND_Y - CACTUS_HEIGHT,
+                        y: cactus_y,
                     });
                 }
             }
@@ -272,10 +291,61 @@ impl GameState {
             if rng.gen_bool(0.8) {
                 self.stars.push(Star {
                     x: screen_width(),
-                    y: GROUND_Y - 80.0 - rng.gen_range(0.0..100.0), // 在空中随机高度
+                    y: GROUND_Y - 40.0 - rng.gen_range(0.0..60.0), // 降低高度，在较低空中随机
                 });
             }
             self.star_spawn_timer = 0.0;
+        }
+
+        // 生成地面小石子装饰
+        self.stone_spawn_timer += dt;
+        if self.stone_spawn_timer > 0.2 {
+            use ::rand::Rng;
+            let mut rng = ::rand::thread_rng();
+
+            // 95% 概率生成小石子，更密集
+            if rng.gen_bool(0.95) {
+                // 重点在两条地面线中间生成彩色石子
+                for _ in 0..rng.gen_range(4..8) {
+                    let stone_y = if rng.gen_bool(0.7) {
+                        // 70% 概率在两条线中间生成彩色石子
+                        GROUND_Y + rng.gen_range(5.0..45.0)
+                    } else {
+                        // 30% 概率在地面线附近生成普通石子
+                        let ground_line = if rng.gen_bool(0.5) { GROUND_Y } else { GROUND_Y2 };
+                        ground_line + rng.gen_range(-8.0..12.0)
+                    };
+                    
+                    // 生成随机颜色
+                    let random_colors = [
+                        Color::new(0.8, 0.2, 0.2, 1.0), // 红色
+                        Color::new(0.2, 0.8, 0.2, 1.0), // 绿色
+                        Color::new(0.2, 0.2, 0.8, 1.0), // 蓝色
+                        Color::new(0.8, 0.8, 0.2, 1.0), // 黄色
+                        Color::new(0.8, 0.2, 0.8, 1.0), // 紫色
+                        Color::new(0.2, 0.8, 0.8, 1.0), // 青色
+                        Color::new(0.9, 0.5, 0.2, 1.0), // 橙色
+                        DARKGRAY, // 灰色
+                        GRAY,     // 浅灰色
+                    ];
+                    
+                    let color = if stone_y > GROUND_Y && stone_y < GROUND_Y2 {
+                        // 两条线中间的石子使用随机颜色
+                        random_colors[rng.gen_range(0..7)] // 不包括灰色
+                    } else {
+                        // 地面线附近的石子使用灰色
+                        random_colors[rng.gen_range(7..9)]
+                    };
+                    
+                    self.stones.push(Stone {
+                        x: screen_width() + rng.gen_range(0.0..60.0),
+                        y: stone_y,
+                        size: rng.gen_range(1.5..4.5),
+                        color,
+                    });
+                }
+            }
+            self.stone_spawn_timer = 0.0;
         }
 
         // 移动仙人掌
@@ -288,6 +358,11 @@ impl GameState {
             star.x -= GAME_SPEED * dt;
         }
 
+        // 移动小石子
+        for stone in &mut self.stones {
+            stone.x -= GAME_SPEED * dt;
+        }
+
         // 移除屏幕外的仙人掌并增加分数
         let initial_count = self.cacti.len();
         self.cacti.retain(|cactus| cactus.x > -CACTUS_WIDTH);
@@ -296,6 +371,9 @@ impl GameState {
 
         // 移除屏幕外的五角星
         self.stars.retain(|star| star.x > -STAR_SIZE);
+
+        // 移除屏幕外的小石子
+        self.stones.retain(|stone| stone.x > -10.0);
 
         // 五角星碰撞检测（收集奖励）
         let dino_rect = Rect::new(DINO_X, self.dino_y, DINO_WIDTH, DINO_HEIGHT);
@@ -326,6 +404,9 @@ impl GameState {
 
         // 绘制地面
         draw_line(0.0, GROUND_Y, screen_width(), GROUND_Y, 2.0, BLACK);
+        
+        // 绘制第二条地面线
+        draw_line(0.0, GROUND_Y2, screen_width(), GROUND_Y2, 2.0, DARKGRAY);
 
         // 绘制恐龙身体
         draw_rectangle(DINO_X, self.dino_y, DINO_WIDTH, DINO_HEIGHT, GREEN);
@@ -363,7 +444,7 @@ impl GameState {
                 DINO_X + 8.0,
                 self.dino_y + DINO_HEIGHT,
                 DINO_X + 8.0,
-                self.dino_y + DINO_HEIGHT + 12.0 + leg_offset,
+                self.dino_y + DINO_HEIGHT + 20.0 + leg_offset,
                 3.0,
                 BLACK,
             );
@@ -372,7 +453,7 @@ impl GameState {
                 DINO_X + 15.0,
                 self.dino_y + DINO_HEIGHT,
                 DINO_X + 15.0,
-                self.dino_y + DINO_HEIGHT + 12.0 - leg_offset,
+                self.dino_y + DINO_HEIGHT + 20.0 - leg_offset,
                 3.0,
                 BLACK,
             );
@@ -402,6 +483,28 @@ impl GameState {
                 star.x + STAR_SIZE / 2.0,
                 star.y + STAR_SIZE / 2.0,
                 STAR_SIZE / 2.0,
+            );
+        }
+
+        // 绘制地面小石子
+        for stone in &self.stones {
+            // 使用石子自带的颜色
+            draw_circle(stone.x, stone.y, stone.size, stone.color);
+            
+            // 添加高光效果让石子更立体
+            let highlight_color = if stone.y > GROUND_Y && stone.y < GROUND_Y2 {
+                // 彩色石子使用白色高光
+                WHITE
+            } else {
+                // 灰色石子使用浅灰色高光
+                LIGHTGRAY
+            };
+            
+            draw_circle(
+                stone.x - stone.size * 0.3, 
+                stone.y - stone.size * 0.3, 
+                stone.size * 0.3, 
+                highlight_color
             );
         }
 
